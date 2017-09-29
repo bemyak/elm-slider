@@ -30,19 +30,20 @@ import Html.Events exposing (on, targetValue)
 import Json.Decode exposing (map)
 import DOM exposing (boundingClientRect)
 import Mouse exposing (Position)
+import Slider exposing (DragInfo)
+
+
+type SliderStatus
+    = Selected
+    | Dragging DragInfo
 
 
 {-| The base model for the slider
 -}
 type alias Model =
-    { min : Float
-    , max : Float
-    , step : Int
+    { config : SliderConfig
     , value : Float
-    , dragging : Bool
-    , rangeStartValue : Float
-    , thumbStartingPosition : Float
-    , dragStartPosition : Float
+    , status : SliderStatus
     }
 
 
@@ -55,87 +56,72 @@ type Msg
     | DragEnd Position
 
 
+type alias SliderConfig =
+    { min : Float, max : Float, step : Int, initialValue : Float }
+
+
 {-| Returns a default range slider
 -}
-init : { min : Float, max : Float, step : Int, value : Float } -> Model
+init : SliderConfig -> Model
 init config =
-    { min = config.min
-    , max = config.max
-    , step = config.step
-    , value = config.value
-    , dragging = False
-    , rangeStartValue = 0
-    , thumbStartingPosition = 0
-    , dragStartPosition = 0
+    { config = config
+    , value = config.initialValue
+    , status = Selected
     }
 
 
 {-| takes a model and a message and applies it to create an updated model
 -}
-update : Msg -> Model -> ( Model, Cmd Msg, Bool )
+update : Msg -> Model -> Model
 update message model =
     case message of
         TrackClicked newValue ->
             let
                 convertedValue =
-                    snapValue (String.toFloat newValue |> Result.toMaybe |> Maybe.withDefault 0) model.step
-
-                newModel =
-                    { model | value = convertedValue }
+                    String.toFloat newValue
+                        |> Result.withDefault 0
+                        |> snapValue model.config
             in
-                ( newModel, Cmd.none, True )
+                { model | value = convertedValue }
 
         DragStart position offsetLeft ->
-            ( { model
-                | dragging = True
-                , rangeStartValue = model.value
-                , thumbStartingPosition = offsetLeft + 8
-                , dragStartPosition = (toFloat position.x)
-              }
-            , Cmd.none
-            , False
-            )
+            { model
+                | status =
+                    Dragging
+                        { rangeStartValue = model.value
+                        , thumbStartingPosition = offsetLeft + 8
+                        , dragStartPosition = (toFloat position.x)
+                        }
+            }
 
         DragAt position ->
-            let
-                delta =
-                    ((toFloat position.x) - model.dragStartPosition)
+            case model.status of
+                Selected ->
+                    model
 
-                ratio =
-                    (model.rangeStartValue / model.thumbStartingPosition)
+                Dragging dragInfo ->
+                    let
+                        delta =
+                            ((toFloat position.x) - dragInfo.dragStartPosition)
 
-                newValue =
-                    snapValue ((model.thumbStartingPosition + delta) * ratio) model.step
+                        ratio =
+                            (dragInfo.rangeStartValue / dragInfo.thumbStartingPosition)
 
-                newModel =
-                    if newValue >= model.min && newValue <= model.max then
-                        { model | value = newValue }
-                    else
-                        model
-            in
-                ( newModel, Cmd.none, False )
+                        newValue =
+                            ((dragInfo.thumbStartingPosition + delta) * ratio)
+                                |> snapValue model.config
+                    in
+                        if newValue >= model.config.min && newValue <= model.config.max then
+                            { model | value = newValue }
+                        else
+                            model
 
         DragEnd position ->
-            let
-                _ =
-                    Debug.log "position" position
-
-                _ =
-                    Debug.log "model" model
-            in
-                ( { model
-                    | dragging = False
-                    , rangeStartValue = 0
-                    , thumbStartingPosition = 0
-                    , dragStartPosition = 0
-                  }
-                , Cmd.none
-                , True
-                )
+            { model | status = Selected }
 
 
-snapValue : Float -> Int -> Float
-snapValue value step =
+snapValue : SliderConfig -> Float -> Float
+snapValue { step } value =
     toFloat (((round value) // step) * step)
 
 
@@ -145,7 +131,7 @@ onOutsideRangeClick model =
         valueDecoder =
             Json.Decode.map2
                 (\rectangle mouseX ->
-                    toString (round ((model.max / rectangle.width) * mouseX))
+                    toString (round ((model.config.max / rectangle.width) * mouseX))
                 )
                 (Json.Decode.at [ "target" ] boundingClientRect)
                 (Json.Decode.at [ "offsetX" ] Json.Decode.float)
@@ -181,13 +167,13 @@ view : Model -> Html Msg
 view model =
     let
         progress_ratio =
-            100 / model.max
+            100 / model.config.max
 
         thumbStartingPosition =
             toString (model.value * progress_ratio) ++ "%"
 
         progress =
-            toString ((model.max - model.value) * progress_ratio) ++ "%"
+            toString ((model.config.max - model.value) * progress_ratio) ++ "%"
     in
         div
             [ Html.Attributes.class "input-range-container" ]
@@ -220,7 +206,9 @@ view model =
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if model.dragging then
-        Sub.batch [ Mouse.moves DragAt, Mouse.ups DragEnd ]
-    else
-        Sub.none
+    case model.status of
+        Dragging _ ->
+            Sub.batch [ Mouse.moves DragAt, Mouse.ups DragEnd ]
+
+        Selected ->
+            Sub.none

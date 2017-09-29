@@ -30,29 +30,37 @@ import Html.Events exposing (on, targetValue)
 import Json.Decode exposing (map)
 import DOM exposing (boundingClientRect)
 import Mouse exposing (Position)
+import Slider exposing (DragInfo)
 
 
-{-| The base model for the slider
--}
-type alias Model =
+type alias SliderConfig =
     { min : Float
     , max : Float
     , step : Int
     , lowValue : Float
     , highValue : Float
-    , dragging : Bool
-    , draggedValueType : SliderValueType
-    , rangeStartValue : Float
-    , thumbStartingPosition : Float
-    , dragStartPosition : Float
     , formatter : Float -> String
     }
+
+
+{-| The base model for the slider
+-}
+type alias Model =
+    { config : SliderConfig
+    , lowValue : Float
+    , highValue : Float
+    , status : SliderStatus
+    }
+
+
+type SliderStatus
+    = Selected
+    | Dragging SliderValueType DragInfo
 
 
 type SliderValueType
     = LowValue
     | HighValue
-    | None
 
 
 {-| The basic type accepted by the update
@@ -67,141 +75,102 @@ type Msg
 
 {-| Returns a default range slider
 -}
-init : { min : Float, max : Float, step : Int, lowValue : Float, highValue : Float, formatter : Float -> String } -> Model
+init : SliderConfig -> Model
 init config =
-    { min = config.min
-    , max = config.max
-    , step = config.step
+    { config = config
     , lowValue = config.lowValue
     , highValue = config.highValue
-    , dragging = False
-    , draggedValueType = None
-    , rangeStartValue = 0
-    , thumbStartingPosition = 0
-    , dragStartPosition = 0
-    , formatter = config.formatter
+    , status = Selected
     }
 
 
 {-| takes a model and a message and applies it to create an updated model
 -}
-update : Msg -> Model -> ( Model, Cmd Msg, Bool )
+update : Msg -> Model -> Model
 update message model =
     case message of
         RangeChanged valueType newValue shouldFetchModels ->
             let
                 convertedValue =
                     String.toFloat newValue |> Result.toMaybe |> Maybe.withDefault 0
-
-                newModel =
-                    case valueType of
-                        LowValue ->
-                            { model | lowValue = convertedValue }
-
-                        HighValue ->
-                            { model | highValue = convertedValue }
-
-                        None ->
-                            model
             in
-                ( newModel, Cmd.none, shouldFetchModels )
+                case valueType of
+                    LowValue ->
+                        { model | lowValue = convertedValue }
+
+                    HighValue ->
+                        { model | highValue = convertedValue }
 
         TrackClicked valueType newValue ->
             let
                 convertedValue =
                     String.toFloat newValue |> Result.toMaybe |> Maybe.withDefault 0
-
-                newModel =
-                    case valueType of
-                        LowValue ->
-                            { model | lowValue = convertedValue }
-
-                        HighValue ->
-                            { model | highValue = convertedValue }
-
-                        None ->
-                            model
             in
-                ( newModel, Cmd.none, True )
+                case valueType of
+                    LowValue ->
+                        { model | lowValue = convertedValue }
+
+                    HighValue ->
+                        { model | highValue = convertedValue }
 
         DragStart valueType position offsetLeft ->
-            let
-                newModel =
-                    { model
-                        | dragging = True
-                        , draggedValueType = valueType
-                        , rangeStartValue =
+            { model
+                | status =
+                    Dragging valueType
+                        { rangeStartValue =
                             case valueType of
                                 LowValue ->
                                     model.lowValue
 
                                 HighValue ->
                                     model.highValue
-
-                                None ->
-                                    0
                         , thumbStartingPosition = offsetLeft + 16
                         , dragStartPosition = (toFloat position.x)
-                    }
-            in
-                ( newModel, Cmd.none, False )
+                        }
+            }
 
         DragAt position ->
-            let
-                delta =
-                    ((toFloat position.x) - model.dragStartPosition)
+            case model.status of
+                Selected ->
+                    model
 
-                -- TODO : fix calculation when rangeStartValue and/or thumbStartingPosition are 0
-                ratio =
-                    (model.rangeStartValue / model.thumbStartingPosition)
+                Dragging valueType dragInfo ->
+                    let
+                        delta =
+                            ((toFloat position.x) - dragInfo.dragStartPosition)
 
-                newValue =
-                    snapValue ((model.thumbStartingPosition + delta) * ratio) model.step
+                        ratio =
+                            (dragInfo.rangeStartValue / dragInfo.thumbStartingPosition)
 
-                newModel =
-                    if newValue >= model.min && newValue <= model.max then
-                        case model.draggedValueType of
-                            LowValue ->
-                                { model | lowValue = newValue }
+                        newValue =
+                            snapValue model.config ((dragInfo.thumbStartingPosition + delta) * ratio)
+                    in
+                        if newValue >= model.config.min && newValue <= model.config.max then
+                            case valueType of
+                                LowValue ->
+                                    { model | lowValue = newValue }
 
-                            HighValue ->
-                                { model | highValue = newValue }
-
-                            None ->
-                                model
-                    else if (model.draggedValueType == LowValue && newValue > model.highValue - 1000) then
-                        model
-                    else if (model.draggedValueType == HighValue && newValue < model.lowValue + 1000) then
-                        model
-                    else
-                        model
-            in
-                ( newModel, Cmd.none, False )
+                                HighValue ->
+                                    { model | highValue = newValue }
+                        else
+                            model
 
         DragEnd position ->
-            ( { model
-                | dragging = False
-                , rangeStartValue = 0
-                , thumbStartingPosition = 0
-                , dragStartPosition = 0
-              }
-            , Cmd.none
-            , True
-            )
+            { model | status = Selected }
 
 
 {-| renders the current values using the formatter
 -}
 formatCurrentValue : Model -> String
 formatCurrentValue model =
-    if model.lowValue == model.min && model.highValue == model.max then
+    if model.lowValue == model.config.min && model.highValue == model.config.max then
         ""
     else
-        (model.formatter model.lowValue) ++ " - " ++ (model.formatter model.highValue)
+        (model.config.formatter model.lowValue) ++ " - " ++ (model.config.formatter model.highValue)
 
 
-snapValue : Float -> Int -> Float
-snapValue value step =
+snapValue : SliderConfig -> Float -> Float
+snapValue { step } value =
     toFloat (((round value) // step) * step)
 
 
@@ -213,7 +182,7 @@ onOutsideRangeClick model =
                 (\rectangle mouseX ->
                     let
                         newValue =
-                            snapValue ((model.max / rectangle.width) * mouseX) model.step
+                            snapValue model.config ((model.config.max / rectangle.width) * mouseX)
 
                         valueType =
                             if newValue < model.lowValue then
@@ -229,7 +198,7 @@ onOutsideRangeClick model =
         valueDecoder =
             Json.Decode.map2
                 (\rectangle mouseX ->
-                    toString (round ((model.max / rectangle.width) * mouseX))
+                    toString (round ((model.config.max / rectangle.width) * mouseX))
                 )
                 (Json.Decode.at [ "target" ] boundingClientRect)
                 (Json.Decode.at [ "offsetX" ] Json.Decode.float)
@@ -269,7 +238,7 @@ onInsideRangeClick model =
                             model.highValue - model.lowValue
 
                         newValue =
-                            snapValue ((((model.highValue - model.lowValue) / rectangle.width) * mouseX) + model.lowValue) model.step
+                            snapValue model.config ((((model.highValue - model.lowValue) / rectangle.width) * mouseX) + model.lowValue)
                     in
                         toString (round newValue)
                 )
@@ -309,23 +278,23 @@ fallbackView model =
             round model.highValue
 
         progressRatio =
-            100 / model.max
+            100 / model.config.max
 
         progressLow =
             toString (model.lowValue * progressRatio) ++ "%"
 
         progressHigh =
-            toString ((model.max - model.highValue) * progressRatio) ++ "%"
+            toString ((model.config.max - model.highValue) * progressRatio) ++ "%"
     in
         div []
             [ div
                 [ Html.Attributes.class "input-range-container" ]
                 [ Html.input
                     [ Html.Attributes.type_ "range"
-                    , Html.Attributes.min (toString model.min)
-                    , Html.Attributes.max (toString model.max)
+                    , Html.Attributes.min (toString model.config.min)
+                    , Html.Attributes.max (toString model.config.max)
                     , Html.Attributes.value <| (toString model.lowValue)
-                    , Html.Attributes.step (toString model.step)
+                    , Html.Attributes.step (toString model.config.step)
                     , Html.Attributes.class "input-range input-range--first"
                     , Html.Events.on "change" (onRangeChange LowValue True)
                     , Html.Events.on "input" (onRangeChange LowValue False)
@@ -333,10 +302,10 @@ fallbackView model =
                     []
                 , Html.input
                     [ Html.Attributes.type_ "range"
-                    , Html.Attributes.min (toString model.min)
-                    , Html.Attributes.max (toString model.max)
+                    , Html.Attributes.min (toString model.config.min)
+                    , Html.Attributes.max (toString model.config.max)
                     , Html.Attributes.value <| (toString model.highValue)
-                    , Html.Attributes.step (toString model.step)
+                    , Html.Attributes.step (toString model.config.step)
                     , Html.Attributes.class "input-range input-range--second"
                     , Html.Events.on "change" (onRangeChange HighValue True)
                     , Html.Events.on "input" (onRangeChange HighValue False)
@@ -356,9 +325,9 @@ fallbackView model =
                 ]
             , div
                 [ Html.Attributes.class "input-range-labels-container" ]
-                [ div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.formatter model.min) ]
+                [ div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.config.formatter model.config.min) ]
                 , div [ Html.Attributes.class "input-range-label input-range-label--current-value" ] [ Html.text (formatCurrentValue model) ]
-                , div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.formatter model.max) ]
+                , div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.config.formatter model.config.max) ]
                 ]
             ]
 
@@ -375,7 +344,7 @@ view model =
             round model.highValue
 
         progressRatio =
-            100 / model.max
+            100 / model.config.max
 
         lowThumbStartingPosition =
             toString (model.lowValue * progressRatio) ++ "%"
@@ -387,7 +356,7 @@ view model =
             toString (model.lowValue * progressRatio) ++ "%"
 
         progressHigh =
-            toString ((model.max - model.highValue) * progressRatio) ++ "%"
+            toString ((model.config.max - model.highValue) * progressRatio) ++ "%"
     in
         div []
             [ div
@@ -418,8 +387,8 @@ view model =
                 ]
             , div
                 [ Html.Attributes.class "input-range-labels-container" ]
-                [ div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.formatter model.min) ]
-                , div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.formatter model.max) ]
+                [ div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.config.formatter model.config.min) ]
+                , div [ Html.Attributes.class "input-range-label" ] [ Html.text (model.config.formatter model.config.max) ]
                 ]
             ]
 
@@ -428,7 +397,9 @@ view model =
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if model.dragging then
-        Sub.batch [ Mouse.moves DragAt, Mouse.ups DragEnd ]
-    else
-        Sub.none
+    case model.status of
+        Selected ->
+            Sub.none
+
+        Dragging _ _ ->
+            Sub.batch [ Mouse.moves DragAt, Mouse.ups DragEnd ]
