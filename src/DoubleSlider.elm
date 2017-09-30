@@ -30,7 +30,7 @@ import Html.Events exposing (on, targetValue)
 import Json.Decode exposing (map)
 import DOM exposing (boundingClientRect)
 import Mouse exposing (Position)
-import Slider exposing (DragInfo)
+import Slider exposing (DragInfo, ValueChange(..))
 
 
 type alias SliderConfig =
@@ -84,37 +84,45 @@ init config =
     }
 
 
+valueChange : Float -> Float -> ValueChange
+valueChange oldValue newValue =
+    if oldValue == newValue then
+        NoChange
+    else
+        Changed newValue
+
+
 {-| takes a model and a message and applies it to create an updated model
 -}
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, ValueChange )
 update message model =
     case message of
         RangeChanged valueType newValue shouldFetchModels ->
             let
                 convertedValue =
-                    String.toFloat newValue |> Result.toMaybe |> Maybe.withDefault 0
+                    String.toFloat newValue |> Result.withDefault 0
             in
                 case valueType of
                     LowValue ->
-                        { model | lowValue = convertedValue }
+                        ( { model | lowValue = convertedValue }, valueChange model.lowValue convertedValue )
 
                     HighValue ->
-                        { model | highValue = convertedValue }
+                        ( { model | highValue = convertedValue }, valueChange model.highValue convertedValue )
 
         TrackClicked valueType newValue ->
             let
                 convertedValue =
-                    String.toFloat newValue |> Result.toMaybe |> Maybe.withDefault 0
+                    String.toFloat newValue |> Result.withDefault 0
             in
                 case valueType of
                     LowValue ->
-                        { model | lowValue = convertedValue }
+                        ( { model | lowValue = convertedValue }, valueChange model.lowValue convertedValue )
 
                     HighValue ->
-                        { model | highValue = convertedValue }
+                        ( { model | highValue = convertedValue }, valueChange model.highValue convertedValue )
 
         DragStart valueType position offsetLeft ->
-            { model
+            ( { model
                 | status =
                     Dragging valueType
                         { rangeStartValue =
@@ -127,12 +135,14 @@ update message model =
                         , thumbStartingPosition = offsetLeft + 16
                         , dragStartPosition = (toFloat position.x)
                         }
-            }
+              }
+            , NoChange
+            )
 
         DragAt position ->
             case model.status of
                 Selected ->
-                    model
+                    ( model, NoChange )
 
                 Dragging valueType dragInfo ->
                     let
@@ -148,15 +158,15 @@ update message model =
                         if newValue >= model.config.min && newValue <= model.config.max then
                             case valueType of
                                 LowValue ->
-                                    { model | lowValue = newValue }
+                                    ( { model | lowValue = newValue }, valueChange model.lowValue newValue )
 
                                 HighValue ->
-                                    { model | highValue = newValue }
+                                    ( { model | highValue = newValue }, valueChange model.highValue newValue )
                         else
-                            model
+                            ( model, NoChange )
 
         DragEnd position ->
-            { model | status = Selected }
+            ( { model | status = Selected }, NoChange )
 
 
 {-| renders the current values using the formatter

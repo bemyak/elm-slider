@@ -28,7 +28,7 @@ The `SingleSlider.init` function creates a range slider which handles values fro
             { min = 50
             , max = 5000
             , step = 50
-            , value = 2000
+            , initialValue = 2000
             }
 ```
 
@@ -36,8 +36,7 @@ Because it uses mouse movements, the range slider requires subscriptions. After 
 ```elm
 
 subscriptions =
-    Sub.map SliderMsg <|
-            DoubleSlider.subscriptions model.slider
+    model.slider |> DoubleSlider.subscriptions |> Sub.map SliderMsg
 ```
 
 Handle the updates from the subscription in your main update function. Together with the new model and a command
@@ -51,17 +50,18 @@ update msg model =
     case msg of
         SliderMsg innerMsg ->
             let
-                ( newSlider, cmd, updateResults ) =
+                (newSlider, change) =
                     DoubleSlider.update innerMsg model slider
 
                 newModel =
                     { model | slider = newSlider }
 
                 newCmd =
-                    if updateResults then
-                        Cmd.batch [ Cmd.map SliderMsg cmd, otherCmd ]
-                    else
-                        otherCmd
+                    case change of
+                        Changed newValue ->
+                            doSomeUpdate newValue
+                        NoChange ->
+                            Cmd.none
             in
                 ( newModel, newCmd )
 ```

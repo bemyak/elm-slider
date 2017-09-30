@@ -1,4 +1,9 @@
-module Slider exposing (DragInfo)
+module Slider exposing (DragInfo, ValueChange(..))
+
+
+type ValueChange
+    = NoChange
+    | Changed Float
 
 
 type alias DragInfo =

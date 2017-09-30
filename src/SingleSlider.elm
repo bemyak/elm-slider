@@ -30,7 +30,7 @@ import Html.Events exposing (on, targetValue)
 import Json.Decode exposing (map)
 import DOM exposing (boundingClientRect)
 import Mouse exposing (Position)
-import Slider exposing (DragInfo)
+import Slider exposing (DragInfo, ValueChange(..))
 
 
 type SliderStatus
@@ -72,7 +72,7 @@ init config =
 
 {-| takes a model and a message and applies it to create an updated model
 -}
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, ValueChange )
 update message model =
     case message of
         TrackClicked newValue ->
@@ -81,23 +81,31 @@ update message model =
                     String.toFloat newValue
                         |> Result.withDefault 0
                         |> snapValue model.config
+
+                change =
+                    if model.value == convertedValue then
+                        NoChange
+                    else
+                        Changed convertedValue
             in
-                { model | value = convertedValue }
+                ( { model | value = convertedValue }, change )
 
         DragStart position offsetLeft ->
-            { model
+            ( { model
                 | status =
                     Dragging
                         { rangeStartValue = model.value
                         , thumbStartingPosition = offsetLeft + 8
                         , dragStartPosition = (toFloat position.x)
                         }
-            }
+              }
+            , NoChange
+            )
 
         DragAt position ->
             case model.status of
                 Selected ->
-                    model
+                    ( model, NoChange )
 
                 Dragging dragInfo ->
                     let
@@ -110,14 +118,20 @@ update message model =
                         newValue =
                             ((dragInfo.thumbStartingPosition + delta) * ratio)
                                 |> snapValue model.config
+
+                        change =
+                            if newValue == model.value then
+                                NoChange
+                            else
+                                Changed newValue
                     in
                         if newValue >= model.config.min && newValue <= model.config.max then
-                            { model | value = newValue }
+                            ( { model | value = newValue }, change )
                         else
-                            model
+                            ( model, NoChange )
 
         DragEnd position ->
-            { model | status = Selected }
+            ( { model | status = Selected }, NoChange )
 
 
 snapValue : SliderConfig -> Float -> Float
