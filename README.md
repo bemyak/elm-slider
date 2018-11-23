@@ -1,7 +1,7 @@
 # elm-slider
 
 ```shell
-elm install carwow/elm-slider
+elm install bemyak/elm-slider
 ```
 
 ## Usage
