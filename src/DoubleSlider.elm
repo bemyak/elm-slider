@@ -37,7 +37,7 @@ import Json.Decode exposing (map)
 type alias Model =
     { min : Float
     , max : Float
-    , step : Int
+    , step : Float
     , lowValue : Float
     , highValue : Float
     , dragging : Bool
@@ -63,7 +63,7 @@ type SliderValueType
 {-| The basic type accepted by the update
 -}
 type Msg
-    = TrackClicked SliderValueType String
+    = TrackClicked SliderValueType Float
     | DragStart SliderValueType Int Float Float
     | DragAt Int
     | DragEnd
@@ -124,7 +124,7 @@ update message model =
         TrackClicked valueType newValue ->
             let
                 convertedValue =
-                    snapValue (String.toFloat newValue |> Maybe.withDefault 0) model.step
+                    snapValue newValue model.step
 
                 newModel =
                     case valueType of
@@ -191,10 +191,10 @@ update message model =
                             0
 
                 newModel =
-                    if model.draggedValueType == LowValue && newValue + (toFloat model.step * model.overlapThreshold) > model.highValue then
+                    if model.draggedValueType == LowValue && newValue + (model.step * model.overlapThreshold) > model.highValue then
                         model
 
-                    else if model.draggedValueType == HighValue && newValue - (toFloat model.step * model.overlapThreshold) < model.lowValue then
+                    else if model.draggedValueType == HighValue && newValue - (model.step * model.overlapThreshold) < model.lowValue then
                         model
 
                     else if newValue >= model.min && newValue <= model.max then
@@ -222,9 +222,9 @@ update message model =
             )
 
 
-snapValue : Float -> Int -> Float
+snapValue : Float -> Float -> Float
 snapValue value step =
-    toFloat ((round value // step) * step)
+    toFloat (round (value / step)) * step
 
 
 onOutsideRangeClick : Model -> Json.Decode.Decoder Msg
@@ -256,7 +256,7 @@ onOutsideRangeClick model =
                         newValue =
                             (((model.max - model.min) / rectangle.width) * mouseX) + model.min
                     in
-                    String.fromInt (round newValue)
+                    newValue
                 )
                 (Json.Decode.at [ "target" ] boundingClientRect)
                 (Json.Decode.at [ "offsetX" ] Json.Decode.float)
@@ -293,7 +293,7 @@ onInsideRangeClick model =
                         newValue =
                             snapValue ((((model.highValue - model.lowValue) / rectangle.width) * mouseX) + model.lowValue) model.step
                     in
-                    String.fromInt (round newValue)
+                    newValue
                 )
                 (Json.Decode.at [ "target" ] boundingClientRect)
                 (Json.Decode.at [ "offsetX" ] Json.Decode.float)
@@ -348,7 +348,7 @@ fallbackView model =
                 , Html.Attributes.min (String.fromFloat model.min)
                 , Html.Attributes.max (String.fromFloat model.max)
                 , Html.Attributes.value <| String.fromFloat model.lowValue
-                , Html.Attributes.step (String.fromInt model.step)
+                , Html.Attributes.step (String.fromFloat model.step)
                 , Html.Attributes.class "input-range input-range--first"
                 , Html.Events.on "change" (onRangeChange LowValue True)
                 , Html.Events.on "input" (onRangeChange LowValue False)
@@ -359,7 +359,7 @@ fallbackView model =
                 , Html.Attributes.min (String.fromFloat model.min)
                 , Html.Attributes.max (String.fromFloat model.max)
                 , Html.Attributes.value <| String.fromFloat model.highValue
-                , Html.Attributes.step (String.fromInt model.step)
+                , Html.Attributes.step (String.fromFloat model.step)
                 , Html.Attributes.class "input-range input-range--second"
                 , Html.Events.on "change" (onRangeChange HighValue True)
                 , Html.Events.on "input" (onRangeChange HighValue False)
