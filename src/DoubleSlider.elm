@@ -157,7 +157,7 @@ update message model =
                                     0
                         , thumbStartingPosition = offsetLeft + 16
                         , thumbParentWidth = offsetWidth
-                        , ratio = model.max / offsetWidth
+                        , ratio = (model.max - model.min) / offsetWidth
                         , dragStartPosition = toFloat positionX
                     }
             in
